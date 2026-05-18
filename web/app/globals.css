@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { height: 100%; }
+body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+.btn { @apply px-3 py-2 rounded text-sm font-medium border border-border bg-panel hover:bg-bg cursor-pointer transition-colors; }
+.btn-primary { @apply bg-accent border-accent hover:bg-blue-600 text-white; }
+.btn-danger { @apply bg-red-600 border-red-600 hover:bg-red-700 text-white; }
+.input { @apply px-3 py-2 rounded text-sm bg-bg border border-border focus:border-accent focus:outline-none w-full; }
+.label { @apply text-xs uppercase tracking-wider text-muted mb-1 block; }
+.card { @apply bg-panel rounded-lg border border-border p-4; }
