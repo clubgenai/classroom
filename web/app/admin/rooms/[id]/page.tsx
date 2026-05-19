@@ -78,6 +78,14 @@ function Inner({ roomId }: { roomId: number }) {
   };
   const startTimer = () => api.form(`/api/admin/rooms/${roomId}/timer`, { action: "start" });
   const pauseTimer = () => api.form(`/api/admin/rooms/${roomId}/timer`, { action: "pause" });
+  const resetTimer = async () => {
+    await api.post(`/api/admin/rooms/${roomId}/timer`, { action: "set", duration_seconds: data?.timer?.duration_seconds ?? 0 });
+    reload();
+  };
+  const stopTimer = async () => {
+    await api.post(`/api/admin/rooms/${roomId}/timer`, { action: "set", duration_seconds: 0 });
+    reload();
+  };
 
   const startRoom = () => api.post(`/api/admin/rooms/${roomId}/start`).then(reload);
   const closeRoom = () => { if (confirm("Fermer la salle ?")) api.post(`/api/admin/rooms/${roomId}/close`).then(reload); };
@@ -111,6 +119,22 @@ function Inner({ roomId }: { roomId: number }) {
     toast.push("Spotlight envoyé", "success");
   };
 
+  const removeParticipant = async (e: Enrollment) => {
+    if (!confirm(`Retirer ${e.display_name} de la salle ?`)) return;
+    try {
+      await api.delete(`/api/admin/rooms/${roomId}/enrollments/${e.id}`);
+      reload();
+    } catch (err: any) { toast.push(err.message, "error"); }
+  };
+
+  const removeResource = async (r: Resource) => {
+    if (!confirm(`Supprimer la ressource ${r.filename} ?`)) return;
+    try {
+      await api.delete(`/api/admin/rooms/${roomId}/resources/${r.id}`);
+      reload();
+    } catch (err: any) { toast.push(err.message, "error"); }
+  };
+
   return (
     <main className="min-h-screen grid grid-cols-[1fr_360px]">
       <section className="p-6 overflow-y-auto max-h-screen">
@@ -139,6 +163,8 @@ function Inner({ roomId }: { roomId: number }) {
               <button className="btn" onClick={() => setTimerSeconds(60 * 60)}>1 h</button>
               <button className="btn btn-primary" onClick={startTimer}>▶</button>
               <button className="btn" onClick={pauseTimer}>⏸</button>
+              <button className="btn" onClick={resetTimer} title="Reset">↺</button>
+              <button className="btn" onClick={stopTimer}>■ Stop</button>
             </div>
           </div>
 
@@ -153,9 +179,12 @@ function Inner({ roomId }: { roomId: number }) {
           <UploadForm onSubmit={uploadResource} />
           <div className="mt-3 space-y-1">
             {data.resources.map((r) => (
-              <div key={r.id} className="flex justify-between bg-bg p-2 rounded text-sm">
+              <div key={r.id} className="flex justify-between items-center bg-bg p-2 rounded text-sm">
                 <span>{r.is_starter ? "⭐ " : ""}{r.filename}</span>
-                <span className="text-muted">{Math.ceil(r.size_bytes / 1024)} kB</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted">{Math.ceil(r.size_bytes / 1024)} kB</span>
+                  <button className="btn btn-danger text-xs" onClick={() => removeResource(r)}>✕</button>
+                </div>
               </div>
             ))}
           </div>
@@ -211,7 +240,10 @@ function Inner({ roomId }: { roomId: number }) {
         {data.enrollments.length === 0 && <div className="text-sm text-muted">Aucun</div>}
         {data.enrollments.map((e) => (
           <div key={e.id} className="card mb-2">
-            <div className="text-sm font-medium">{e.display_name}</div>
+            <div className="flex justify-between items-center">
+              <div className="text-sm font-medium">{e.display_name}</div>
+              <button className="btn btn-danger text-xs" onClick={() => removeParticipant(e)}>✕</button>
+            </div>
             {tokens[e.id] ? (
               <>
                 <div className="text-[10px] font-mono text-muted break-all mt-1 select-all">{tokens[e.id]}</div>

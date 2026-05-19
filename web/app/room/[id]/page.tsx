@@ -51,6 +51,7 @@ function RoomInner({ roomId }: { roomId: number }) {
   const [helpMsg, setHelpMsg] = useState("");
   const [helpCooldown, setHelpCooldown] = useState(0);
   const [timer, setTimer] = useState<TimerType>(null);
+  const [editorMode, setEditorMode] = useState<"resource" | "editor">("resource");
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const reload = useCallback(async () => {
@@ -236,15 +237,40 @@ function RoomInner({ roomId }: { roomId: number }) {
         {/* Center: editor */}
         <section className="flex flex-col bg-panel">
           <div className="bg-bg border-b border-border px-4 py-2 flex gap-2 items-center">
-            <span className="text-sm text-muted">{currentResource?.filename ?? "Aucune ressource"}</span>
+            <button
+              className={`text-xs px-3 py-1 rounded ${editorMode === "resource" ? "bg-accent text-white" : "text-muted hover:text-text"}`}
+              onClick={() => setEditorMode("resource")}
+            >
+              Ressource
+            </button>
+            <button
+              className={`text-xs px-3 py-1 rounded ${editorMode === "editor" ? "bg-accent text-white" : "text-muted hover:text-text"}`}
+              onClick={() => setEditorMode("editor")}
+            >
+              Mon éditeur
+            </button>
+            {editorMode === "resource" && (
+              <span className="text-sm text-muted">{currentResource?.filename ?? "Aucune ressource"}</span>
+            )}
             <div className="flex-1" />
             <FileSubmit onSubmit={submitFile} />
           </div>
           <div className="flex-1 min-h-0">
-            {currentResource ? (
-              <ReadOnlyEditor key={currentResource.id} value={resourceText} language={lang} />
+            {editorMode === "resource" ? (
+              currentResource ? (
+                <ReadOnlyEditor key={currentResource.id} value={resourceText} language={lang} />
+              ) : (
+                <div className="p-6 text-muted">Sélectionne une ressource pour la visualiser.</div>
+              )
             ) : (
-              <div className="p-6 text-muted">Sélectionne une ressource pour la visualiser.</div>
+              <CollabEditor
+                roomId={data.room.id}
+                docId={`participant-${data.user.id}`}
+                userName={data.user.display_name}
+                language={lang}
+                readOnly={false}
+                height="100%"
+              />
             )}
           </div>
         </section>
@@ -278,7 +304,7 @@ function RoomInner({ roomId }: { roomId: number }) {
                     h.status === "claimed" ? "border-blue-800 text-blue-300 bg-blue-900/20" :
                     "border-border text-muted bg-panel"
                   }`}>
-                    <span className="font-medium capitalize">{h.status === "open" ? "En attente" : h.status === "claimed" ? "Pris en charge" : "Résolu"}</span>
+                    <span className="font-medium capitalize">{h.status === "pending" ? "En attente" : h.status === "claimed" ? "Pris en charge" : "Résolu"}</span>
                     {h.message && <span className="ml-2 opacity-70">{h.message.slice(0, 40)}{h.message.length > 40 ? "…" : ""}</span>}
                   </div>
                 ))}

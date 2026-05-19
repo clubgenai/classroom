@@ -500,6 +500,30 @@ def admin_events(room_id: int, request: Request):
     return storage.list_events(room_id)
 
 
+@app.delete("/api/admin/rooms/{room_id}", status_code=204)
+def delete_room(room_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    storage.delete_room(room_id)
+
+
+@app.delete("/api/admin/rooms/{room_id}/enrollments/{enrollment_id}", status_code=204)
+def delete_enrollment(room_id: int, enrollment_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    storage.delete_enrollment(room_id, enrollment_id)
+
+
+@app.delete("/api/admin/rooms/{room_id}/resources/{resource_id}", status_code=204)
+def delete_resource(room_id: int, resource_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    storage.delete_resource(room_id, resource_id)
+
+
 # ── WebSocket: presence + events ──────────────────────────────────────────────
 
 @app.websocket("/ws/{room_id}")

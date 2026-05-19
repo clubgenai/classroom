@@ -553,6 +553,42 @@ def list_events(room_id: int) -> list[dict]:
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
+def delete_room(room_id: int) -> None:
+    with db.cursor() as conn:
+        conn.execute("DELETE FROM submission WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM resource WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM help_request WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM progress WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM enrollment WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM room_animator WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM checklist_item WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM room_timer WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM broadcast_msg WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM spotlight_event WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM session_event WHERE room_id=?", (room_id,))
+        conn.execute("DELETE FROM room WHERE id=?", (room_id,))
+
+
+def delete_enrollment(room_id: int, enrollment_id: int) -> None:
+    with db.cursor() as conn:
+        conn.execute("DELETE FROM mcp_token WHERE enrollment_id=?", (enrollment_id,))
+        conn.execute("DELETE FROM progress WHERE user_id=(SELECT user_id FROM enrollment WHERE id=?) AND room_id=?", (enrollment_id, room_id))
+        conn.execute("DELETE FROM enrollment WHERE id=? AND room_id=?", (enrollment_id, room_id))
+
+
+def delete_resource(room_id: int, resource_id: int) -> None:
+    with db.cursor() as conn:
+        row = conn.execute(
+            "SELECT * FROM resource WHERE id=? AND room_id=?", (resource_id, room_id)
+        ).fetchone()
+        if row:
+            try:
+                resource_disk_path(dict(row)).unlink(missing_ok=True)
+            except Exception:
+                pass
+            conn.execute("DELETE FROM resource WHERE id=? AND room_id=?", (resource_id, room_id))
+
+
 def room_stats(room_id: int) -> dict:
     with db.cursor() as conn:
         total = conn.execute(

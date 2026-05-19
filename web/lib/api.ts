@@ -39,6 +39,7 @@ export const api = {
     }
     return req<T>(path, { method: "POST", body: fd });
   },
+  delete: <T = void>(path: string): Promise<T> => req<T>(path, { method: "DELETE" }),
 };
 
 export type User = {
