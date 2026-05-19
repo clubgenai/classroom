@@ -1,0 +1,8 @@
+.git
+.github
+**/.env
+**/*.env
+**/data.json
+node_modules
+**/__pycache__
+**/.pytest_cache
