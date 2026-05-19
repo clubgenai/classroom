@@ -123,6 +123,7 @@ function Inner({ roomId }: { roomId: number }) {
             <Timer timer={timer} />
             {data.room.status === "open" && <button className="btn btn-primary" onClick={startRoom}>Démarrer</button>}
             {data.room.status !== "closed" && <button className="btn btn-danger" onClick={closeRoom}>Fermer</button>}
+            <a href={`/classroom/api/admin/rooms/${roomId}/export`} className="btn text-xs" download>Export ZIP</a>
             <a href="/classroom/admin" className="btn">←</a>
           </div>
         </header>

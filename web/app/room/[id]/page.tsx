@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import CollabEditor from "@/components/CollabEditor";
 import Timer from "@/components/Timer";
 import { ToastProvider, useToast } from "@/components/Toast";
@@ -15,6 +15,7 @@ type Bundle = {
   resources: Resource[];
   submissions: Submission[];
   mcp_token: { token_hash: string; scopes: string; expires_at: number; active: number } | null;
+  help_requests: HelpRequest[];
   timer: TimerType;
 };
 
@@ -28,6 +29,17 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   );
 }
 
+function fmtTime(ts: number) {
+  return new Date(ts * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtExpiry(exp: number) {
+  const diff = exp - Math.floor(Date.now() / 1000);
+  if (diff <= 0) return "expiré";
+  if (diff < 3600) return `${Math.floor(diff / 60)} min`;
+  return `${Math.floor(diff / 3600)}h${Math.floor((diff % 3600) / 60).toString().padStart(2, "0")}`;
+}
+
 function RoomInner({ roomId }: { roomId: number }) {
   const toast = useToast();
   const [data, setData] = useState<Bundle | null>(null);
@@ -37,7 +49,9 @@ function RoomInner({ roomId }: { roomId: number }) {
   const [currentResource, setCurrentResource] = useState<Resource | null>(null);
   const [resourceText, setResourceText] = useState<string>("");
   const [helpMsg, setHelpMsg] = useState("");
+  const [helpCooldown, setHelpCooldown] = useState(0);
   const [timer, setTimer] = useState<TimerType>(null);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -65,20 +79,28 @@ function RoomInner({ roomId }: { roomId: number }) {
       toast.push("La salle est fermée", "error");
     } else if (ev.type === "resource_added") {
       reload();
+    } else if (["help_claimed", "help_resolved"].includes(ev.type)) {
+      reload();
     }
   }, [reload, toast]);
 
   useRoomSocket(roomId, "participant", handleEvent);
 
-  if (err) return <div className="p-8 text-red-400">Erreur: {err} — <a href="/" className="underline">Retour</a></div>;
+  const leave = async () => {
+    await api.post("/api/logout").catch(() => {});
+    window.location.href = "/classroom";
+  };
+
+  if (err) return <div className="p-8 text-red-400">Erreur: {err} — <a href="/classroom" className="underline">Retour</a></div>;
   if (!data) return <div className="p-8 text-muted">Chargement…</div>;
 
   const loadResource = async (r: Resource) => {
     setCurrentResource(r);
     try {
-      const res = await fetch(`/api/rooms/${roomId}/resources/${r.id}/download`, { credentials: "include" });
-      setResourceText(await res.text());
-    } catch { setResourceText(""); }
+      const res = await fetch(`/classroom/api/rooms/${roomId}/resources/${r.id}/download`, { credentials: "include" });
+      if (res.ok) setResourceText(await res.text());
+      else setResourceText(`// Erreur chargement (${res.status})`);
+    } catch { setResourceText("// Impossible de charger ce fichier"); }
   };
 
   const toggleProgress = async (itemId: number, done: boolean) => {
@@ -87,10 +109,18 @@ function RoomInner({ roomId }: { roomId: number }) {
   };
 
   const askHelp = async () => {
+    if (helpCooldown > 0) return;
     try {
       await api.form(`/api/rooms/${roomId}/help`, { message: helpMsg });
       toast.push("Demande envoyée", "success");
       setHelpMsg("");
+      setHelpCooldown(30);
+      cooldownRef.current = setInterval(() => {
+        setHelpCooldown((c) => {
+          if (c <= 1) { clearInterval(cooldownRef.current!); return 0; }
+          return c - 1;
+        });
+      }, 1000);
     } catch (e: any) {
       toast.push(e instanceof ApiError ? e.message : String(e), "error");
     }
@@ -106,20 +136,39 @@ function RoomInner({ roomId }: { roomId: number }) {
     }
   };
 
+  const copyCode = () => {
+    navigator.clipboard.writeText(data.room.code).then(() => toast.push("Code copié", "success"));
+  };
+
   const ext = currentResource?.filename.split(".").pop() ?? "txt";
   const lang = ({ js: "javascript", py: "python", md: "markdown", json: "json", html: "html", css: "css", ts: "typescript", tsx: "typescript", jsx: "javascript" } as Record<string, string>)[ext] ?? "plaintext";
+
+  const doneCount = data.progress_ids.length;
+  const totalCount = data.checklist.length;
+
+  const mcpToken = data.mcp_token?.active === 1 ? data.mcp_token : null;
+  const mcpExpiring = mcpToken && (mcpToken.expires_at - Math.floor(Date.now() / 1000)) < 1800;
+
+  const myHelp = data.help_requests?.filter((h) => h.user_id === data.user.id) ?? [];
 
   return (
     <div className="h-screen grid grid-rows-[auto_1fr] overflow-hidden">
       <header className="bg-panel border-b border-border px-5 py-3 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <h1 className="text-base font-semibold">{data.room.name}</h1>
-          <span className="text-xs bg-accent px-2 py-0.5 rounded">{data.room.code}</span>
+          <button
+            onClick={copyCode}
+            title="Cliquer pour copier"
+            className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded hover:bg-accent/40 transition-colors cursor-pointer font-mono tracking-widest"
+          >
+            {data.room.code}
+          </button>
           {data.room.subject && <span className="text-sm text-muted">— {data.room.subject}</span>}
         </div>
         <div className="flex items-center gap-4">
           <Timer timer={timer} />
           <span className="text-sm text-muted">{data.user.display_name}</span>
+          <button onClick={leave} className="btn text-xs">Quitter</button>
         </div>
       </header>
 
@@ -134,11 +183,27 @@ function RoomInner({ roomId }: { roomId: number }) {
               onClick={() => loadResource(r)}
               className={`w-full text-left p-2 rounded text-sm mb-1 hover:bg-panel ${currentResource?.id === r.id ? "bg-panel border-l-2 border-accent" : ""} ${r.is_starter ? "border-l-2 border-yellow-500" : ""}`}
             >
-              {r.filename}
+              <span>{r.filename}</span>
+              {r.is_starter === 1 && <span className="ml-1 text-yellow-500 text-xs">starter</span>}
             </button>
           ))}
 
-          <h2 className="label">Checklist</h2>
+          <h2 className="label">
+            Checklist
+            {totalCount > 0 && (
+              <span className={`ml-2 text-xs font-normal ${doneCount === totalCount ? "text-green-400" : "text-muted"}`}>
+                {doneCount}/{totalCount}
+              </span>
+            )}
+          </h2>
+          {totalCount > 0 && (
+            <div className="h-1 rounded-full bg-border overflow-hidden mb-2">
+              <div
+                className={`h-full rounded-full transition-all ${doneCount === totalCount ? "bg-green-500" : "bg-accent"}`}
+                style={{ width: `${totalCount > 0 ? (doneCount / totalCount) * 100 : 0}%` }}
+              />
+            </div>
+          )}
           {data.checklist.length === 0 && <div className="text-sm text-muted">Pas de checklist</div>}
           {data.checklist.map((item) => {
             const done = data.progress_ids.includes(item.id);
@@ -150,10 +215,20 @@ function RoomInner({ roomId }: { roomId: number }) {
             );
           })}
 
-          {data.mcp_token?.active === 1 && (
+          {mcpToken && (
             <>
               <h2 className="label">Jeton MCP</h2>
-              <div className="text-xs text-muted bg-panel p-2 rounded border border-border">Actif</div>
+              <div className={`text-xs p-2 rounded border ${mcpExpiring ? "bg-red-900/30 border-red-700 text-red-300" : "bg-panel border-border text-muted"}`}>
+                <div className="flex justify-between">
+                  <span>Actif</span>
+                  <span className={mcpExpiring ? "text-red-300 font-semibold" : ""}>
+                    {fmtExpiry(mcpToken.expires_at)}
+                  </span>
+                </div>
+                {mcpToken.scopes && (
+                  <div className="mt-1 text-xs opacity-70">{mcpToken.scopes}</div>
+                )}
+              </div>
             </>
           )}
         </aside>
@@ -175,45 +250,76 @@ function RoomInner({ roomId }: { roomId: number }) {
         </section>
 
         {/* Right sidebar */}
-        <aside className="bg-bg border-l border-border p-4 overflow-y-auto">
-          <h2 className="label mt-0">Aide</h2>
-          <div className="card mb-4">
-            <textarea
-              className="input min-h-[60px] mb-2"
-              placeholder="Décris le problème (optionnel)"
-              value={helpMsg}
-              maxLength={500}
-              onChange={(e) => setHelpMsg(e.target.value)}
-            />
-            <button className="btn btn-primary w-full" onClick={askHelp}>Demander de l'aide</button>
+        <aside className="bg-bg border-l border-border p-4 overflow-y-auto space-y-4">
+          <div>
+            <h2 className="label mt-0">Aide</h2>
+            <div className="card mb-2">
+              <textarea
+                className="input min-h-[60px] mb-2"
+                placeholder="Décris le problème (optionnel)"
+                value={helpMsg}
+                maxLength={500}
+                onChange={(e) => setHelpMsg(e.target.value)}
+                disabled={helpCooldown > 0}
+              />
+              <button
+                className="btn btn-primary w-full"
+                onClick={askHelp}
+                disabled={helpCooldown > 0}
+              >
+                {helpCooldown > 0 ? `Demander de l'aide (${helpCooldown}s)` : "Demander de l'aide"}
+              </button>
+            </div>
+            {myHelp.length > 0 && (
+              <div className="space-y-1">
+                {myHelp.slice(0, 3).map((h) => (
+                  <div key={h.id} className={`text-xs p-2 rounded border ${
+                    h.status === "resolved" ? "border-green-800 text-green-400 bg-green-900/20" :
+                    h.status === "claimed" ? "border-blue-800 text-blue-300 bg-blue-900/20" :
+                    "border-border text-muted bg-panel"
+                  }`}>
+                    <span className="font-medium capitalize">{h.status === "open" ? "En attente" : h.status === "claimed" ? "Pris en charge" : "Résolu"}</span>
+                    {h.message && <span className="ml-2 opacity-70">{h.message.slice(0, 40)}{h.message.length > 40 ? "…" : ""}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <h2 className="label">Mes soumissions</h2>
-          {data.submissions.length === 0 && <div className="text-sm text-muted">Aucune soumission</div>}
-          {data.submissions.map((s) => (
-            <div key={s.id} className="bg-panel p-2 rounded mb-1 text-sm flex justify-between">
-              <span>{s.filename}</span>
-              <span className="text-muted">v{s.version}</span>
-            </div>
-          ))}
+          <div>
+            <h2 className="label">Mes soumissions</h2>
+            {data.submissions.length === 0 && <div className="text-sm text-muted">Aucune soumission</div>}
+            {data.submissions.map((s) => (
+              <div key={s.id} className="bg-panel p-2 rounded mb-1 text-sm flex justify-between">
+                <span>{s.filename}</span>
+                <span className="text-muted">v{s.version}</span>
+              </div>
+            ))}
+          </div>
 
-          <h2 className="label">Broadcasts</h2>
-          {broadcasts.length === 0 && <div className="text-sm text-muted">—</div>}
-          {broadcasts.map((b, i) => (
-            <div key={i} className="bg-panel p-2 rounded mb-1 text-sm">
-              <span className="font-semibold text-blue-400">{b.from}: </span>
-              <span>{b.message}</span>
+          {broadcasts.length > 0 && (
+            <div>
+              <h2 className="label">Messages</h2>
+              {broadcasts.map((b, i) => (
+                <div key={i} className="bg-panel p-2 rounded mb-1 text-sm">
+                  <div className="flex justify-between items-baseline mb-0.5">
+                    <span className="font-semibold text-blue-400 text-xs">{b.from}</span>
+                    <span className="text-xs text-muted">{fmtTime(b.sent_at)}</span>
+                  </div>
+                  <span>{b.message}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
 
           {spotlight && (
-            <>
+            <div>
               <h2 className="label">Spotlight</h2>
               <div className="bg-panel p-2 rounded text-xs">
                 <div className="text-muted mb-1">{spotlight.anonymous ? "[anonyme]" : `[${spotlight.filename}]`}</div>
                 <pre className="whitespace-pre-wrap overflow-x-auto text-text">{spotlight.content}</pre>
               </div>
-            </>
+            </div>
           )}
         </aside>
       </main>

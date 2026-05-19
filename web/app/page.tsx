@@ -28,6 +28,13 @@ export default function Landing() {
     }
   };
 
+  const errMsg = err
+    ? err.includes("full") || err.includes("complet") ? "La salle est complète"
+    : err.includes("closed") || err.includes("fermée") || err.includes("close") ? "La salle est fermée"
+    : err.includes("not found") || err.includes("introuvable") || err.includes("404") ? "Code de salle introuvable"
+    : err
+    : null;
+
   return (
     <main className="min-h-screen flex items-center justify-center p-4">
       <div className="card w-full max-w-md">
@@ -35,13 +42,21 @@ export default function Landing() {
         <form onSubmit={join} className="space-y-4">
           <div>
             <label className="label">Votre nom</label>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required placeholder="Camille" />
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required placeholder="ex: Camille" />
           </div>
           <div>
             <label className="label">Code de la salle</label>
-            <input className="input uppercase tracking-widest text-center font-mono" value={code} onChange={(e) => setCode(e.target.value)} maxLength={6} required placeholder="AB12CD" />
+            <input
+              className="input uppercase tracking-widest text-center font-mono"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+              maxLength={6}
+              required
+              placeholder="AB12CD"
+              autoComplete="off"
+            />
           </div>
-          {err && <div className="text-red-400 text-sm">{err}</div>}
+          {errMsg && <div className="text-red-400 text-sm">{errMsg}</div>}
           <button className="btn btn-primary w-full" disabled={busy}>{busy ? "…" : "Entrer"}</button>
         </form>
         <div className="mt-6 pt-4 border-t border-border text-center">
