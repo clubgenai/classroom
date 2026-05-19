@@ -39,6 +39,16 @@ function Inner({ roomId }: { roomId: number }) {
       setTimer(d.timer);
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 401) {
+        try {
+          const res = await fetch("/portal/api/animator-token", { credentials: "include" });
+          if (res.ok) {
+            const { token } = await res.json();
+            const fd = new FormData();
+            fd.append("jwt_token", token);
+            const loginRes = await fetch("/classroom/api/admin/login", { method: "POST", credentials: "include", body: fd });
+            if (loginRes.ok) { reload(); return; }
+          }
+        } catch {}
         window.location.href = `/portal?next=/classroom/admin/rooms/${roomId}`;
         return;
       }

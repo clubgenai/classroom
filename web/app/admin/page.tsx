@@ -4,6 +4,24 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, Room } from "@/lib/api";
 
+async function ensureAnimatorAuth(): Promise<boolean> {
+  // Try to get animator token from portal and exchange it
+  try {
+    const res = await fetch("/portal/api/animator-token", { credentials: "include" });
+    if (!res.ok) return false;
+    const { token } = await res.json();
+    const fd = new FormData();
+    fd.append("jwt_token", token);
+    const loginRes = await fetch("/classroom/api/admin/login", {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    return loginRes.ok;
+  } catch {
+    return false;
+  }
+}
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -14,9 +32,20 @@ export default function AdminDashboard() {
   useEffect(() => {
     api.get<Room[]>("/api/admin/rooms")
       .then(setRooms)
-      .catch((e: ApiError) => {
-        if (e.status === 401) window.location.href = "/portal?next=/classroom/admin";
-        else setErr(e.message);
+      .catch(async (e: ApiError) => {
+        if (e.status === 401) {
+          const ok = await ensureAnimatorAuth();
+          if (ok) {
+            // Retry after successful token exchange
+            api.get<Room[]>("/api/admin/rooms").then(setRooms).catch(() => {
+              window.location.href = "/portal?next=/classroom/admin";
+            });
+          } else {
+            window.location.href = "/portal?next=/classroom/admin";
+          }
+        } else {
+          setErr(e.message);
+        }
       });
   }, []);
 
