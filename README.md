@@ -11,7 +11,7 @@ Salle de classe virtuelle pour les sessions de formation GenAI de SFEIR. Permet 
 | Composant | Version | Rôle |
 |-----------|---------|------|
 | FastAPI | 0.115+ | API REST + WebSocket |
-| Python | 3.11+ | Runtime backend |
+| Python | 3.12 | Runtime backend (image `python:3.12-slim`) |
 | uv | dernière | Gestionnaire de paquets Python |
 | Next.js | 15.3.9 | Frontend |
 | React | 19.1.0 | UI |
@@ -108,6 +108,9 @@ EOF
 # Créer le dossier de données
 mkdir -p /tmp/classroom-data
 
+# Créer et activer l'environnement virtuel
+uv venv && source .venv/bin/activate
+
 # Installer les dépendances
 uv pip install -e .
 
@@ -145,10 +148,15 @@ Ouvrir deux onglets sur la même salle Classroom. Les modifications dans l'édit
 
 | Variable | Requis | Exemple | Description |
 |----------|--------|---------|-------------|
-| `CLASSROOM_SESSION_SECRET` | Oui | `openssl rand -hex 64` | Clé chiffrement sessions |
+| `CLASSROOM_SESSION_SECRET` | Oui | `openssl rand -hex 64` | Clé chiffrement sessions participants |
 | `MCP_JWT_SECRET` | Oui | `openssl rand -hex 64` | Secret JWT partagé avec Portal et MCP Server |
-| `CLASSROOM_DATA_DIR` | Non | `/data` | Dossier stockage données SQLite |
+| `PORTAL_SESSION_SECRET` | Oui (prod) | `openssl rand -hex 64` | Secret JWT Portal pour auth animateurs — vide = animateurs non authentifiés |
+| `CLASSROOM_DATA_DIR` | Non | `/data` | Dossier stockage données SQLite + fichiers |
 | `CLASSROOM_PORT` | Non | `8002` | Port d'écoute API |
+| `CLASSROOM_BASE_URL` | Non | `http://sfeir-lab.local/classroom` | URL publique de base (pour génération de liens) |
+| `PORTAL_URL` | Non | `http://sfeir-lab.local/portal` | URL Portal pour redirections auth animateur |
+| `MCP_JWT_ISSUER` | Non | `sfeir-lab-classroom` | Issuer des tokens JWT émis |
+| `MCP_JWT_AUDIENCE` | Non | `mcp-server` | Audience des tokens JWT émis |
 
 ### classroom-web (build-time Docker ARG)
 
@@ -263,8 +271,8 @@ systemctl --user status podman-classroom-web
 
 | Job | Image | Tags |
 |-----|-------|------|
-| `classroom-api` | `ghcr.io/clubgenai/classroom-api` | `latest` + SHA complet (40 chars) |
-| `classroom-web` | `ghcr.io/clubgenai/classroom-web` | `latest` + SHA complet (40 chars) |
+| `classroom-api` | `ghcr.io/clubgenai/classroom-api` | `latest` + SHA complet 40 chars (CI) / SHA court 7 chars (manuel) |
+| `classroom-web` | `ghcr.io/clubgenai/classroom-web` | `latest` + SHA complet 40 chars (CI) / SHA court 7 chars (manuel) |
 
 ---
 
