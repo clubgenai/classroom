@@ -25,7 +25,7 @@ from . import auth, config, db, storage, tokens
 from .ws import hub
 from .yjs import yjs_handler
 
-app = FastAPI(title="ClubGenAI Classroom API")
+app = FastAPI(title="ClubGenAI Classroom API", root_path="/classroom")
 app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET, https_only=False, same_site="lax")
 app.add_middleware(
     CORSMiddleware,
