@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, Room } from "@/lib/api";
 
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [rooms, setRooms] = useState<Room[] | null>(null);
-  const [needsLogin, setNeedsLogin] = useState(false);
-  const [token, setToken] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -16,22 +15,10 @@ export default function AdminDashboard() {
     api.get<Room[]>("/api/admin/rooms")
       .then(setRooms)
       .catch((e: ApiError) => {
-        if (e.status === 401) setNeedsLogin(true);
+        if (e.status === 401) window.location.href = "/portal?next=/classroom/admin";
         else setErr(e.message);
       });
   }, []);
-
-  const login = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.form("/api/admin/login", { jwt_token: token });
-      setNeedsLogin(false);
-      const r = await api.get<Room[]>("/api/admin/rooms");
-      setRooms(r);
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
 
   const createRoom = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -44,21 +31,6 @@ export default function AdminDashboard() {
       setErr(e.message);
     } finally { setCreating(false); }
   };
-
-  if (needsLogin) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-4">
-        <form onSubmit={login} className="card w-full max-w-md space-y-3">
-          <h1 className="text-xl font-semibold">Connexion animateur</h1>
-          <p className="text-sm text-muted">Colle ton jeton MCP du portail (l'animateur doit avoir un compte sur le portail GitHub).</p>
-          <textarea className="input font-mono text-xs min-h-[120px]" value={token} onChange={(e) => setToken(e.target.value)} placeholder="eyJhbGciOiJIUzI1NiI..." required />
-          {err && <div className="text-red-400 text-sm">{err}</div>}
-          <button className="btn btn-primary w-full">Connexion</button>
-          <a href="/" className="block text-sm text-muted text-center">← Espace participant</a>
-        </form>
-      </main>
-    );
-  }
 
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">

@@ -38,6 +38,10 @@ function Inner({ roomId }: { roomId: number }) {
       setData(d);
       setTimer(d.timer);
     } catch (e: any) {
+      if (e instanceof ApiError && e.status === 401) {
+        window.location.href = `/portal?next=/classroom/admin/rooms/${roomId}`;
+        return;
+      }
       setErr(e instanceof ApiError ? e.message : String(e));
     }
   }, [roomId]);
