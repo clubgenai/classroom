@@ -55,7 +55,7 @@ export default function AdminDashboard() {
     setCreating(true);
     try {
       const room = await api.post<Room>("/api/admin/rooms", fd as any);
-      router.push(`/classroom/admin/rooms/${room.id}`);
+      router.push(`/admin/rooms/${room.id}`);
     } catch (e: any) {
       setErr(e.message);
     } finally { setCreating(false); }
