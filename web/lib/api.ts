@@ -4,8 +4,10 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
     ...init,
   });
