@@ -31,6 +31,14 @@ export const api = {
     }
     return req<T>(path, init);
   },
+  put: <T>(path: string, fields: Record<string, string | number | boolean | Blob>) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) {
+      if (v instanceof Blob) fd.append(k, v);
+      else fd.append(k, String(v));
+    }
+    return req<T>(path, { method: "PUT", body: fd });
+  },
   form: <T>(path: string, fields: Record<string, string | number | boolean | Blob>) => {
     const fd = new FormData();
     for (const [k, v] of Object.entries(fields)) {
@@ -58,6 +66,7 @@ export type Room = {
   code: string;
   status: "open" | "started" | "closed";
   max_participants: number;
+  locked: number;
   started_at?: number | null;
   ended_at?: number | null;
   created_at: number;

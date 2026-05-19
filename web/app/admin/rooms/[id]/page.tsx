@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, ChecklistItem, Enrollment, HelpRequest, Resource, Room, Submission, Timer as TimerType, User } from "@/lib/api";
 import { useRoomSocket } from "@/lib/useRoomSocket";
 import Timer from "@/components/Timer";
@@ -31,6 +31,9 @@ function Inner({ roomId }: { roomId: number }) {
   const [err, setErr] = useState<string | null>(null);
   const [timer, setTimer] = useState<TimerType>(null);
   const [tokens, setTokens] = useState<Record<number, string>>({});
+  const [showEdit, setShowEdit] = useState(false);
+  const [diffEnrollment, setDiffEnrollment] = useState<Enrollment | null>(null);
+  const [showReport, setShowReport] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -60,7 +63,7 @@ function Inner({ roomId }: { roomId: number }) {
 
   useRoomSocket(roomId, "animator", (ev: any) => {
     if (ev.type === "timer") setTimer(ev.timer);
-    if (["help_requested", "help_claimed", "help_resolved", "submission", "progress", "resource_added"].includes(ev.type)) {
+    if (["help_requested", "help_claimed", "help_resolved", "submission", "progress", "resource_added", "room_locked", "room_unlocked"].includes(ev.type)) {
       reload();
     }
   });
@@ -89,6 +92,24 @@ function Inner({ roomId }: { roomId: number }) {
 
   const startRoom = () => api.post(`/api/admin/rooms/${roomId}/start`).then(reload);
   const closeRoom = () => { if (confirm("Fermer la salle ?")) api.post(`/api/admin/rooms/${roomId}/close`).then(reload); };
+
+  const editRoom = async (fields: { name: string; subject: string; max_participants: number; checklist_items: string }) => {
+    try {
+      await api.put(`/api/admin/rooms/${roomId}`, fields);
+      toast.push("Salle mise à jour", "success");
+      setShowEdit(false);
+      reload();
+    } catch (e: any) { toast.push(e.message, "error"); }
+  };
+
+  const toggleLock = async () => {
+    const locked = data.room.locked;
+    try {
+      await api.post(`/api/admin/rooms/${roomId}/${locked ? "unlock" : "lock"}`);
+      toast.push(locked ? "Salle déverrouillée" : "Salle verrouillée", "success");
+      reload();
+    } catch (e: any) { toast.push(e.message, "error"); }
+  };
 
   const uploadResource = async (file: File, starter: boolean) => {
     try { await api.form(`/api/admin/rooms/${roomId}/resources`, { file, is_starter: starter }); toast.push("Uploadée", "success"); reload(); }
@@ -145,12 +166,27 @@ function Inner({ roomId }: { roomId: number }) {
           </div>
           <div className="flex gap-2 items-center">
             <Timer timer={timer} />
+            <button
+              className="btn text-xs"
+              title={data.room.locked ? "Déverrouiller" : "Verrouiller"}
+              onClick={toggleLock}
+            >{data.room.locked ? "🔒" : "🔓"}</button>
+            <button className="btn text-xs" onClick={() => setShowEdit(true)}>Modifier</button>
             {data.room.status === "open" && <button className="btn btn-primary" onClick={startRoom}>Démarrer</button>}
             {data.room.status !== "closed" && <button className="btn btn-danger" onClick={closeRoom}>Fermer</button>}
+            <button className="btn text-xs" onClick={() => setShowReport(true)}>Rapport</button>
             <a href={`/classroom/api/admin/rooms/${roomId}/export`} className="btn text-xs" download>Export ZIP</a>
             <a href="/classroom/admin" className="btn">←</a>
           </div>
         </header>
+        {showEdit && (
+          <EditModal
+            room={data.room}
+            checklist={data.checklist}
+            onClose={() => setShowEdit(false)}
+            onSubmit={editRoom}
+          />
+        )}
 
         <Stats stats={data.stats} />
 
@@ -242,7 +278,12 @@ function Inner({ roomId }: { roomId: number }) {
           <div key={e.id} className="card mb-2">
             <div className="flex justify-between items-center">
               <div className="text-sm font-medium">{e.display_name}</div>
-              <button className="btn btn-danger text-xs" onClick={() => removeParticipant(e)}>✕</button>
+              <div className="flex gap-1">
+                {data.submissions.some((s) => s.user_id === e.user_id) && (
+                  <button className="btn text-xs" onClick={() => setDiffEnrollment(e)}>Diff</button>
+                )}
+                <button className="btn btn-danger text-xs" onClick={() => removeParticipant(e)}>✕</button>
+              </div>
             </div>
             {tokens[e.id] ? (
               <>
@@ -255,6 +296,19 @@ function Inner({ roomId }: { roomId: number }) {
           </div>
         ))}
       </aside>
+
+      {diffEnrollment && (
+        <DiffModal
+          roomId={roomId}
+          enrollment={diffEnrollment}
+          onClose={() => setDiffEnrollment(null)}
+          onSolutionSaved={() => { toast.push("Solution enregistrée", "success"); }}
+        />
+      )}
+
+      {showReport && (
+        <ReportModal roomId={roomId} onClose={() => setShowReport(false)} />
+      )}
     </main>
   );
 }
@@ -305,6 +359,234 @@ function UploadForm({ onSubmit }: { onSubmit: (f: File, starter: boolean) => voi
         starter
       </label>
     </label>
+  );
+}
+
+function EditModal({
+  room,
+  checklist,
+  onClose,
+  onSubmit,
+}: {
+  room: Room;
+  checklist: ChecklistItem[];
+  onClose: () => void;
+  onSubmit: (fields: { name: string; subject: string; max_participants: number; checklist_items: string }) => void;
+}) {
+  const [name, setName] = useState(room.name);
+  const [subject, setSubject] = useState(room.subject ?? "");
+  const [maxParticipants, setMaxParticipants] = useState(room.max_participants);
+  const [checklistItems, setChecklistItems] = useState(
+    checklist.map((c) => c.label).join("\n")
+  );
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({ name, subject, max_participants: maxParticipants, checklist_items: checklistItems });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold mb-4">Modifier la salle</h2>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="label">Nom</label>
+            <input className="input w-full" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />
+          </div>
+          <div>
+            <label className="label">Sujet</label>
+            <input className="input w-full" value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} />
+          </div>
+          <div>
+            <label className="label">Participants max</label>
+            <input className="input w-full" type="number" min={1} max={200} value={maxParticipants} onChange={(e) => setMaxParticipants(parseInt(e.target.value, 10))} required />
+          </div>
+          <div>
+            <label className="label">Checklist (une ligne par item)</label>
+            <textarea className="input w-full h-28 resize-y" value={checklistItems} onChange={(e) => setChecklistItems(e.target.value)} />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" className="btn" onClick={onClose}>Annuler</button>
+            <button type="submit" className="btn btn-primary">Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+type DiffData = { submitted_code: string | null; solution: string | null };
+
+function DiffModal({
+  roomId,
+  enrollment,
+  onClose,
+  onSolutionSaved,
+}: {
+  roomId: number;
+  enrollment: Enrollment;
+  onClose: () => void;
+  onSolutionSaved: () => void;
+}) {
+  const [diff, setDiff] = useState<DiffData | null>(null);
+  const [solution, setSolution] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get<DiffData>(`/api/admin/rooms/${roomId}/participants/${enrollment.id}/diff`).then((d) => {
+      setDiff(d);
+      setSolution(d.solution ?? "");
+    });
+  }, [roomId, enrollment.id]);
+
+  const saveSolution = async () => {
+    setSaving(true);
+    try {
+      await api.post(`/api/admin/rooms/${roomId}/solution`, { code: solution });
+      onSolutionSaved();
+      setDiff((prev) => prev ? { ...prev, solution } : prev);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-surface border border-border rounded-lg p-6 w-[90vw] max-w-5xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-semibold text-lg">Diff — {enrollment.display_name}</h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+
+        {!diff ? (
+          <div className="text-muted text-sm">Chargement…</div>
+        ) : (
+          <div className="flex gap-4 flex-1 overflow-hidden min-h-0">
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="text-xs font-semibold text-muted mb-1">Soumission du participant</div>
+              <div className="flex-1 overflow-auto bg-bg rounded p-2 font-mono text-xs leading-5">
+                {diff.submitted_code == null ? (
+                  <span className="text-muted">Aucune soumission</span>
+                ) : (
+                  diff.submitted_code.split("\n").map((line, i) => {
+                    const solLine = (diff.solution ?? "").split("\n")[i] ?? "";
+                    const differs = diff.solution != null && line !== solLine;
+                    return (
+                      <div key={i} className={`px-1 rounded ${differs ? "bg-red-900/40" : ""}`}>
+                        {line || " "}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="text-xs font-semibold text-muted mb-1">Solution attendue</div>
+              <textarea
+                className="flex-1 bg-bg rounded p-2 font-mono text-xs leading-5 resize-none border border-border focus:outline-none focus:border-accent"
+                value={solution}
+                onChange={(e) => setSolution(e.target.value)}
+                placeholder="Collez ou saisissez la solution ici…"
+              />
+              <button
+                className="btn btn-primary mt-2 text-xs"
+                onClick={saveSolution}
+                disabled={saving}
+              >
+                {saving ? "Enregistrement…" : "Enregistrer la solution"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type ReportData = {
+  room: { name: string; subject: string; created_at: number };
+  participants_total: number;
+  checklist_completion_pct: number;
+  submissions_count: number;
+  help_requests_total: number;
+  help_requests_resolved: number;
+  per_participant: {
+    name: string;
+    checklist_done: number;
+    checklist_total: number;
+    submitted: boolean;
+    help_requests: number;
+  }[];
+};
+
+function ReportModal({ roomId, onClose }: { roomId: number; onClose: () => void }) {
+  const [report, setReport] = useState<ReportData | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<ReportData>(`/api/admin/rooms/${roomId}/report`)
+      .then(setReport)
+      .catch((e: any) => setErr(e.message ?? String(e)));
+  }, [roomId]);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-surface border border-border rounded-lg p-6 w-[90vw] max-w-3xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-semibold text-lg">Rapport de session</h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+
+        {err && <div className="text-red-400 text-sm">{err}</div>}
+        {!report && !err && <div className="text-muted text-sm">Chargement…</div>}
+
+        {report && (
+          <div className="flex flex-col gap-4 overflow-auto">
+            <div className="grid grid-cols-4 gap-3">
+              <Stat label="Participants" value={report.participants_total} />
+              <Stat label="Checklist %" value={`${report.checklist_completion_pct}%`} />
+              <Stat label="Soumissions" value={report.submissions_count} />
+              <Stat label="Aide résolue" value={`${report.help_requests_resolved}/${report.help_requests_total}`} />
+            </div>
+
+            <div className="overflow-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-left text-muted text-xs border-b border-border">
+                    <th className="py-2 pr-3">Participant</th>
+                    <th className="py-2 pr-3">Checklist</th>
+                    <th className="py-2 pr-3">Soumis</th>
+                    <th className="py-2">Aide</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.per_participant.map((p, i) => (
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className="py-2 pr-3 font-medium">{p.name}</td>
+                      <td className="py-2 pr-3 text-muted">{p.checklist_done}/{p.checklist_total}</td>
+                      <td className="py-2 pr-3">
+                        {p.submitted
+                          ? <span className="text-green-400 font-semibold">oui</span>
+                          : <span className="text-muted">non</span>}
+                      </td>
+                      <td className="py-2">{p.help_requests}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

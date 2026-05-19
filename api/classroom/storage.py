@@ -163,6 +163,38 @@ def add_animator(room_id: int, user_id: int) -> None:
         )
 
 
+def update_room(room_id: int, **kwargs) -> dict:
+    allowed = {"name", "subject", "max_participants"}
+    sets = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+    checklist = kwargs.get("checklist")
+    with db.cursor() as conn:
+        if sets:
+            cols = ", ".join(f"{k}=?" for k in sets)
+            conn.execute(
+                f"UPDATE room SET {cols} WHERE id=?",
+                (*sets.values(), room_id),
+            )
+        if checklist is not None:
+            conn.execute("DELETE FROM checklist_item WHERE room_id=?", (room_id,))
+            for i, label in enumerate(checklist):
+                conn.execute(
+                    "INSERT INTO checklist_item (room_id, position, label) VALUES (?, ?, ?)",
+                    (room_id, i, label.strip()[:200]),
+                )
+        row = conn.execute("SELECT * FROM room WHERE id=?", (room_id,)).fetchone()
+    return dict(row)
+
+
+def set_room_locked(room_id: int, locked: bool) -> dict:
+    with db.cursor() as conn:
+        conn.execute(
+            "UPDATE room SET locked=? WHERE id=?",
+            (1 if locked else 0, room_id),
+        )
+        row = conn.execute("SELECT * FROM room WHERE id=?", (room_id,)).fetchone()
+    return dict(row)
+
+
 def start_room(room_id: int) -> None:
     with db.cursor() as conn:
         conn.execute(
@@ -587,6 +619,161 @@ def delete_resource(room_id: int, resource_id: int) -> None:
             except Exception:
                 pass
             conn.execute("DELETE FROM resource WHERE id=? AND room_id=?", (resource_id, room_id))
+
+
+# ── Room templates ────────────────────────────────────────────────────────────
+
+def list_templates(animator_id: int) -> list[dict]:
+    with db.cursor() as conn:
+        rows = conn.execute(
+            "SELECT * FROM room_template WHERE animator_id=? ORDER BY created_at DESC",
+            (animator_id,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        r = dict(row)
+        r["payload"] = json.loads(r["payload"]) if r["payload"] else {}
+        result.append(r)
+    return result
+
+
+def create_template(
+    name: str,
+    animator_id: int,
+    subject: str = "",
+    max_participants: int = 50,
+    checklist_items: Optional[list[str]] = None,
+) -> dict:
+    now = time.time()
+    payload = json.dumps({
+        "subject": subject,
+        "max_participants": max_participants,
+        "checklist_items": checklist_items or [],
+    })
+    with db.cursor() as conn:
+        cur = conn.execute(
+            "INSERT INTO room_template (name, animator_id, payload, created_at) VALUES (?, ?, ?, ?)",
+            (name[:120], animator_id, payload, now),
+        )
+        row = conn.execute("SELECT * FROM room_template WHERE id=?", (cur.lastrowid,)).fetchone()
+    r = dict(row)
+    r["payload"] = json.loads(r["payload"])
+    return r
+
+
+def get_template(template_id: int) -> Optional[dict]:
+    with db.cursor() as conn:
+        row = conn.execute("SELECT * FROM room_template WHERE id=?", (template_id,)).fetchone()
+    if not row:
+        return None
+    r = dict(row)
+    r["payload"] = json.loads(r["payload"]) if r["payload"] else {}
+    return r
+
+
+def delete_template(template_id: int) -> None:
+    with db.cursor() as conn:
+        conn.execute("DELETE FROM room_template WHERE id=?", (template_id,))
+
+
+def set_room_solution(room_id: int, code: str) -> None:
+    with db.cursor() as conn:
+        conn.execute("UPDATE room SET solution=? WHERE id=?", (code, room_id))
+
+
+def get_participant_diff(room_id: int, enrollment_id: int) -> dict:
+    with db.cursor() as conn:
+        enr = conn.execute(
+            "SELECT * FROM enrollment WHERE id=? AND room_id=?", (enrollment_id, room_id)
+        ).fetchone()
+        if not enr:
+            return {"submitted_code": None, "solution": None}
+        sub = conn.execute(
+            "SELECT * FROM submission WHERE user_id=? AND room_id=? "
+            "ORDER BY submitted_at DESC LIMIT 1",
+            (enr["user_id"], room_id),
+        ).fetchone()
+        room = conn.execute("SELECT solution FROM room WHERE id=?", (room_id,)).fetchone()
+    submitted_code: Optional[str] = None
+    if sub:
+        p = submission_disk_path(dict(sub))
+        if p.exists():
+            submitted_code = p.read_text(errors="replace")
+    return {
+        "submitted_code": submitted_code,
+        "solution": room["solution"] if room else None,
+    }
+
+
+def room_report(room_id: int) -> dict:
+    with db.cursor() as conn:
+        room = conn.execute("SELECT * FROM room WHERE id=?", (room_id,)).fetchone()
+        if not room:
+            return {}
+        participants_total = conn.execute(
+            "SELECT COUNT(*) FROM enrollment WHERE room_id=?", (room_id,)
+        ).fetchone()[0]
+        cl_total = conn.execute(
+            "SELECT COUNT(*) FROM checklist_item WHERE room_id=?", (room_id,)
+        ).fetchone()[0]
+        cl_done_total = conn.execute(
+            "SELECT COUNT(*) FROM progress p "
+            "JOIN enrollment e ON e.user_id=p.user_id AND e.room_id=p.room_id "
+            "WHERE p.room_id=?", (room_id,)
+        ).fetchone()[0]
+        submissions_count = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM submission WHERE room_id=?", (room_id,)
+        ).fetchone()[0]
+        help_total = conn.execute(
+            "SELECT COUNT(*) FROM help_request WHERE room_id=?", (room_id,)
+        ).fetchone()[0]
+        help_resolved = conn.execute(
+            "SELECT COUNT(*) FROM help_request WHERE room_id=? AND status='resolved'", (room_id,)
+        ).fetchone()[0]
+
+        max_possible = cl_total * participants_total if participants_total and cl_total else 0
+        checklist_pct = round(100 * cl_done_total / max_possible) if max_possible else 0
+
+        enrollments = conn.execute(
+            "SELECT e.id, e.user_id, u.display_name FROM enrollment e "
+            "JOIN user u ON u.id=e.user_id WHERE e.room_id=?", (room_id,)
+        ).fetchall()
+
+        per_participant = []
+        for enr in enrollments:
+            done = conn.execute(
+                "SELECT COUNT(*) FROM progress WHERE user_id=? AND room_id=?",
+                (enr["user_id"], room_id),
+            ).fetchone()[0]
+            has_sub = conn.execute(
+                "SELECT 1 FROM submission WHERE user_id=? AND room_id=? LIMIT 1",
+                (enr["user_id"], room_id),
+            ).fetchone()
+            helps = conn.execute(
+                "SELECT COUNT(*) FROM help_request WHERE user_id=? AND room_id=?",
+                (enr["user_id"], room_id),
+            ).fetchone()[0]
+            per_participant.append({
+                "name": enr["display_name"],
+                "checklist_done": done,
+                "checklist_total": cl_total,
+                "submitted": has_sub is not None,
+                "help_requests": helps,
+            })
+
+    return {
+        "room": {
+            "name": room["name"],
+            "subject": room["subject"],
+            "created_at": room["created_at"],
+        },
+        "participants_total": participants_total,
+        "checklist_completion_pct": checklist_pct,
+        "submissions_count": submissions_count,
+        "help_requests_total": help_total,
+        "help_requests_resolved": help_resolved,
+        "per_participant": per_participant,
+    }
 
 
 def room_stats(room_id: int) -> dict:

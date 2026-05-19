@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, Room } from "@/lib/api";
+
+interface Template {
+  id: number;
+  name: string;
+  animator_id: number;
+  created_at: number;
+  payload: {
+    subject: string;
+    max_participants: number;
+    checklist_items: string[];
+  };
+}
 
 async function ensureAnimatorAuth(): Promise<boolean> {
   // Try to get animator token from portal and exchange it
@@ -26,8 +38,11 @@ async function ensureAnimatorAuth(): Promise<boolean> {
 export default function AdminDashboard() {
   const router = useRouter();
   const [rooms, setRooms] = useState<Room[] | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const loadRooms = () => {
     api.get<Room[]>("/api/admin/rooms")
@@ -48,7 +63,16 @@ export default function AdminDashboard() {
       });
   };
 
-  useEffect(() => { loadRooms(); }, []);
+  const loadTemplates = () => {
+    api.get<Template[]>("/api/admin/templates")
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  };
+
+  useEffect(() => {
+    loadRooms();
+    loadTemplates();
+  }, []);
 
   const deleteRoom = async (room: Room) => {
     if (!confirm(`Supprimer la salle «${room.name}» ? Cette action est irréversible.`)) return;
@@ -57,6 +81,50 @@ export default function AdminDashboard() {
       loadRooms();
     } catch (e: any) {
       setErr(e.message);
+    }
+  };
+
+  const applyTemplate = (tpl: Template) => {
+    const form = formRef.current;
+    if (!form) return;
+    (form.elements.namedItem("name") as HTMLInputElement).value = tpl.name;
+    (form.elements.namedItem("subject") as HTMLInputElement).value = tpl.payload.subject ?? "";
+    (form.elements.namedItem("max_participants") as HTMLInputElement).value = String(tpl.payload.max_participants ?? 50);
+    (form.elements.namedItem("checklist") as HTMLTextAreaElement).value = (tpl.payload.checklist_items ?? []).join("\n");
+  };
+
+  const deleteTemplate = async (tpl: Template) => {
+    if (!confirm(`Supprimer le template «${tpl.name}» ?`)) return;
+    try {
+      await api.delete(`/api/admin/templates/${tpl.id}`);
+      loadTemplates();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
+  const saveAsTemplate = async () => {
+    const form = formRef.current;
+    if (!form) return;
+    const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
+    if (!name) { setErr("Le nom est requis pour créer un template"); return; }
+    const subject = (form.elements.namedItem("subject") as HTMLInputElement).value.trim();
+    const maxP = parseInt((form.elements.namedItem("max_participants") as HTMLInputElement).value) || 50;
+    const checklistRaw = (form.elements.namedItem("checklist") as HTMLTextAreaElement).value;
+    const checklistItems = checklistRaw.split("\n").map((l) => l.trim()).filter(Boolean);
+    setSavingTemplate(true);
+    try {
+      await api.post("/api/admin/templates", {
+        name,
+        subject,
+        max_participants: maxP,
+        checklist_items: checklistItems,
+      });
+      loadTemplates();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSavingTemplate(false);
     }
   };
 
@@ -79,9 +147,36 @@ export default function AdminDashboard() {
         <button className="btn" onClick={() => api.post("/api/logout").then(() => location.href = "/classroom/admin")}>Déconnexion</button>
       </div>
 
+      {templates.length > 0 && (
+        <section className="card mb-6">
+          <h2 className="text-lg font-semibold mb-3">Templates</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {templates.map((tpl) => (
+              <div key={tpl.id} className="border border-border rounded p-3 hover:border-accent cursor-pointer flex justify-between items-start gap-2">
+                <button
+                  className="flex-1 text-left"
+                  onClick={() => applyTemplate(tpl)}
+                  title="Cliquer pour pré-remplir le formulaire"
+                >
+                  <div className="font-medium text-sm">{tpl.name}</div>
+                  {tpl.payload.subject && (
+                    <div className="text-xs text-muted mt-0.5">{tpl.payload.subject}</div>
+                  )}
+                </button>
+                <button
+                  className="text-muted hover:text-red-400 text-xs shrink-0"
+                  onClick={() => deleteTemplate(tpl)}
+                  title="Supprimer ce template"
+                >✕</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="card mb-6">
         <h2 className="text-lg font-semibold mb-4">Nouvelle salle</h2>
-        <form onSubmit={createRoom} className="grid gap-3">
+        <form ref={formRef} onSubmit={createRoom} className="grid gap-3">
           <div>
             <label className="label">Nom</label>
             <input className="input" name="name" required maxLength={120} />
@@ -98,7 +193,16 @@ export default function AdminDashboard() {
             <label className="label">Checklist (une ligne par item)</label>
             <textarea className="input min-h-[100px]" name="checklist" placeholder="Lire l'énoncé&#10;Cloner le repo&#10;Implémenter la fonction X" />
           </div>
-          <button className="btn btn-primary" disabled={creating}>{creating ? "…" : "Créer"}</button>
+          <div className="flex gap-2">
+            <button className="btn btn-primary flex-1" disabled={creating}>{creating ? "…" : "Créer"}</button>
+            <button
+              type="button"
+              className="btn"
+              disabled={savingTemplate}
+              onClick={saveAsTemplate}
+              title="Sauvegarder les valeurs actuelles comme template"
+            >{savingTemplate ? "…" : "Sauvegarder comme template"}</button>
+          </div>
         </form>
       </section>
 

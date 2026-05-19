@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS room (
     max_participants INTEGER NOT NULL DEFAULT 50,
     started_at    REAL,
     ended_at      REAL,
-    created_at    REAL NOT NULL
+    created_at    REAL NOT NULL,
+    solution      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS room_animator (
@@ -167,6 +168,11 @@ CREATE INDEX IF NOT EXISTS idx_event_room       ON session_event(room_id, create
 CREATE INDEX IF NOT EXISTS idx_resource_room    ON resource(room_id);
 """
 
+_MIGRATIONS = [
+    "ALTER TABLE room ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE room ADD COLUMN solution TEXT",
+]
+
 _init_lock = threading.Lock()
 _initialized = False
 
@@ -195,6 +201,13 @@ def init() -> None:
         conn = _connect()
         try:
             conn.executescript(_SCHEMA)
+            # Apply migrations idempotently
+            for sql in _MIGRATIONS:
+                try:
+                    conn.execute(sql)
+                    conn.commit()
+                except Exception:
+                    pass  # column already exists or other benign error
         finally:
             conn.close()
         _initialized = True

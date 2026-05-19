@@ -64,6 +64,8 @@ def join_room(
         raise HTTPException(404, "Room not found")
     if room["status"] == "closed":
         raise HTTPException(403, "Room is closed")
+    if room.get("locked"):
+        raise HTTPException(403, "Room is locked")
 
     enrolled = storage.list_enrollments(room["id"])
     if len(enrolled) >= room["max_participants"]:
@@ -271,6 +273,54 @@ def admin_room_view(room_id: int, request: Request):
     }
 
 
+@app.put("/api/admin/rooms/{room_id}")
+def update_room(
+    room_id: int,
+    request: Request,
+    name: str = Form(None),
+    subject: str = Form(None),
+    max_participants: int = Form(None),
+    checklist_items: str = Form(None),
+):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    kwargs = {}
+    if name is not None:
+        kwargs["name"] = name.strip()[:120]
+    if subject is not None:
+        kwargs["subject"] = subject.strip()[:200]
+    if max_participants is not None:
+        kwargs["max_participants"] = min(max_participants, config.MAX_PARTICIPANTS_PER_ROOM)
+    if checklist_items is not None:
+        kwargs["checklist"] = [l.strip() for l in checklist_items.splitlines() if l.strip()]
+    room = storage.update_room(room_id, **kwargs)
+    storage.log_event(room_id, "room_updated", ctx["user"]["id"], None)
+    return room
+
+
+@app.post("/api/admin/rooms/{room_id}/lock")
+async def admin_lock(room_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    room = storage.set_room_locked(room_id, True)
+    storage.log_event(room_id, "room_locked", ctx["user"]["id"], None)
+    await hub.broadcast(room_id, {"type": "room_locked"})
+    return room
+
+
+@app.post("/api/admin/rooms/{room_id}/unlock")
+async def admin_unlock(room_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    room = storage.set_room_locked(room_id, False)
+    storage.log_event(room_id, "room_unlocked", ctx["user"]["id"], None)
+    await hub.broadcast(room_id, {"type": "room_unlocked"})
+    return room
+
+
 @app.post("/api/admin/rooms/{room_id}/start")
 async def admin_start(room_id: int, request: Request):
     ctx = auth.current_animator(request)
@@ -472,6 +522,36 @@ def admin_download_submission(room_id: int, submission_id: int, request: Request
     return FileResponse(storage.submission_disk_path(dict(row)), filename=f"{row['filename']}.v{row['version']}")
 
 
+@app.get("/api/admin/rooms/{room_id}/participants/{enrollment_id}/diff")
+def admin_participant_diff(room_id: int, enrollment_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    return storage.get_participant_diff(room_id, enrollment_id)
+
+
+@app.post("/api/admin/rooms/{room_id}/solution")
+async def admin_set_solution(room_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    body = await request.json()
+    code = body.get("code", "")
+    storage.set_room_solution(room_id, code)
+    return {"ok": True}
+
+
+@app.get("/api/admin/rooms/{room_id}/report")
+def admin_report(room_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    report = storage.room_report(room_id)
+    if not report:
+        raise HTTPException(404)
+    return report
+
+
 @app.get("/api/admin/rooms/{room_id}/export")
 def admin_export(room_id: int, request: Request):
     ctx = auth.current_animator(request)
@@ -498,6 +578,64 @@ def admin_events(room_id: int, request: Request):
     if not storage.is_animator_of(room_id, ctx["user"]["id"]):
         raise HTTPException(403)
     return storage.list_events(room_id)
+
+
+# ── Templates ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/admin/templates")
+def list_templates(request: Request):
+    ctx = auth.current_animator(request)
+    return storage.list_templates(ctx["user"]["id"])
+
+
+@app.post("/api/admin/templates")
+async def create_template(request: Request):
+    ctx = auth.current_animator(request)
+    body = await request.json()
+    name = str(body.get("name", "")).strip()[:120]
+    if not name:
+        raise HTTPException(400, "name required")
+    subject = str(body.get("subject", "")).strip()[:200]
+    max_participants = min(int(body.get("max_participants", 50)), config.MAX_PARTICIPANTS_PER_ROOM)
+    raw_items = body.get("checklist_items", [])
+    items = [str(i).strip()[:200] for i in raw_items if str(i).strip()]
+    tpl = storage.create_template(
+        name=name,
+        animator_id=ctx["user"]["id"],
+        subject=subject,
+        max_participants=max_participants,
+        checklist_items=items,
+    )
+    return tpl
+
+
+@app.post("/api/admin/templates/{template_id}/apply")
+def apply_template(template_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    tpl = storage.get_template(template_id)
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    p = tpl["payload"]
+    room = storage.create_room(
+        name=tpl["name"],
+        subject=p.get("subject", ""),
+        animator_id=ctx["user"]["id"],
+        max_participants=min(p.get("max_participants", 50), config.MAX_PARTICIPANTS_PER_ROOM),
+        checklist=p.get("checklist_items", []),
+    )
+    storage.log_event(room["id"], "room_created_from_template", ctx["user"]["id"], {"template_id": template_id})
+    return room
+
+
+@app.delete("/api/admin/templates/{template_id}", status_code=204)
+def delete_template(template_id: int, request: Request):
+    ctx = auth.current_animator(request)
+    tpl = storage.get_template(template_id)
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    if tpl["animator_id"] != ctx["user"]["id"]:
+        raise HTTPException(403)
+    storage.delete_template(template_id)
 
 
 @app.delete("/api/admin/rooms/{room_id}", status_code=204)
