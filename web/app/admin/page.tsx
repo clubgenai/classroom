@@ -26,7 +26,7 @@ export default function AdminDashboard() {
     setCreating(true);
     try {
       const room = await api.post<Room>("/api/admin/rooms", fd as any);
-      router.push(`/admin/rooms/${room.id}`);
+      router.push(`/classroom/admin/rooms/${room.id}`);
     } catch (e: any) {
       setErr(e.message);
     } finally { setCreating(false); }
@@ -36,7 +36,7 @@ export default function AdminDashboard() {
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-semibold">Tableau de bord animateur</h1>
-        <button className="btn" onClick={() => api.post("/api/logout").then(() => location.href = "/admin")}>Déconnexion</button>
+        <button className="btn" onClick={() => api.post("/api/logout").then(() => location.href = "/classroom/admin")}>Déconnexion</button>
       </div>
 
       <section className="card mb-6">
@@ -68,7 +68,7 @@ export default function AdminDashboard() {
         {rooms && rooms.length === 0 && <div className="text-muted">Aucune salle</div>}
         <div className="grid gap-2">
           {rooms?.map((r) => (
-            <a key={r.id} href={`/admin/rooms/${r.id}`} className="card hover:border-accent block">
+            <a key={r.id} href={`/classroom/admin/rooms/${r.id}`} className="card hover:border-accent block">
               <div className="flex justify-between items-center">
                 <div>
                   <div className="font-medium">{r.name}</div>

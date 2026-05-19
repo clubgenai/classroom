@@ -45,7 +45,7 @@ export default function Landing() {
           <button className="btn btn-primary w-full" disabled={busy}>{busy ? "…" : "Entrer"}</button>
         </form>
         <div className="mt-6 pt-4 border-t border-border text-center">
-          <a href="/admin" className="text-muted text-sm hover:text-text">Espace animateur →</a>
+          <a href="/classroom/admin" className="text-muted text-sm hover:text-text">Espace animateur →</a>
         </div>
       </div>
     </main>

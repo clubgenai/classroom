@@ -55,7 +55,7 @@ function Inner({ roomId }: { roomId: number }) {
     }
   });
 
-  if (err) return <div className="p-8 text-red-400">{err} — <a href="/admin" className="underline">retour</a></div>;
+  if (err) return <div className="p-8 text-red-400">{err} — <a href="/classroom/admin" className="underline">retour</a></div>;
   if (!data) return <div className="p-8 text-muted">Chargement…</div>;
 
   const broadcast = async (msg: string) => {
@@ -113,7 +113,7 @@ function Inner({ roomId }: { roomId: number }) {
             <Timer timer={timer} />
             {data.room.status === "open" && <button className="btn btn-primary" onClick={startRoom}>Démarrer</button>}
             {data.room.status !== "closed" && <button className="btn btn-danger" onClick={closeRoom}>Fermer</button>}
-            <a href="/admin" className="btn">←</a>
+            <a href="/classroom/admin" className="btn">←</a>
           </div>
         </header>
 
