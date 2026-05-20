@@ -45,7 +45,7 @@ async def ensure_user(display_name: str, user_id: int) -> tuple[dict, str]:
         if r.status_code == 200:
             # User exists but password unknown — reset it via admin
             uid = r.json()["id"]
-            await c.put(f"/api/v2/users/{uid}/password", json={"password": password, "old_password": ""})
+            await c.put(f"/api/v2/users/{uid}/password", json={"password": password})
             _user_passwords[username] = password
             return r.json(), password
         payload = {
