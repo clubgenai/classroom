@@ -38,9 +38,9 @@ async def ensure_user(display_name: str, user_id: int) -> dict:
             "username": username,
             "email": f"{username}@classroom.local",
             "name": display_name,
-            "password": str(uuid.uuid4()),  # random, never used — token auth only
+            "password": str(uuid.uuid4()),
             "login_type": "password",
-            "disable_login": False,
+            "organization_ids": [CODER_ORG_ID],
         }
         r = await c.post("/api/v2/users", json=payload)
         r.raise_for_status()
