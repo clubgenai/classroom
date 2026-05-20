@@ -50,6 +50,7 @@ function RoomInner({ roomId }: { roomId: number }) {
   const [timer, setTimer] = useState<TimerType>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
+  const iframeReadyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const reload = useCallback(async () => {
@@ -217,7 +218,10 @@ function RoomInner({ roomId }: { roomId: number }) {
                 className="w-full h-full border-0"
                 allow="clipboard-read; clipboard-write"
                 title="VS Code"
-                onLoad={() => setIframeReady(true)}
+                onLoad={() => {
+                if (iframeReadyTimer.current) clearTimeout(iframeReadyTimer.current);
+                iframeReadyTimer.current = setTimeout(() => setIframeReady(true), 8000);
+              }}
               />
               {!iframeReady && (
                 <div className="absolute inset-0 flex items-center justify-center bg-bg">
