@@ -20,7 +20,9 @@ resource "coder_agent" "main" {
       --auth none \
       --disable-telemetry \
       --disable-update-check \
-      /home/coder/workspace &
+      /home/coder/workspace \
+      </dev/null >/tmp/code-server.log 2>&1 &
+    disown
   EOT
 }
 
