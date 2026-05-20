@@ -49,6 +49,7 @@ function RoomInner({ roomId }: { roomId: number }) {
   const [helpCooldown, setHelpCooldown] = useState(0);
   const [timer, setTimer] = useState<TimerType>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [iframeReady, setIframeReady] = useState(false);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const reload = useCallback(async () => {
@@ -68,9 +69,10 @@ function RoomInner({ roomId }: { roomId: number }) {
   useEffect(() => {
     if (!data || workspace || wsLoading || !CODER_URL) return;
     setWsLoading(true);
+    setIframeReady(false);
     api.post<CoderWorkspace>(`/api/rooms/${roomId}/workspace`)
       .then(setWorkspace)
-      .catch(() => {}) // Coder optionnel — pas bloquant
+      .catch(() => {})
       .finally(() => setWsLoading(false));
   }, [data, workspace, wsLoading, roomId]);
 
@@ -209,12 +211,24 @@ function RoomInner({ roomId }: { roomId: number }) {
               </div>
             </div>
           ) : iframeUrl ? (
-            <iframe
-              src={iframeUrl}
-              className="w-full h-full border-0"
-              allow="clipboard-read; clipboard-write"
-              title="VS Code"
-            />
+            <>
+              <iframe
+                src={iframeUrl}
+                className="w-full h-full border-0"
+                allow="clipboard-read; clipboard-write"
+                title="VS Code"
+                onLoad={() => setIframeReady(true)}
+              />
+              {!iframeReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-bg">
+                  <div className="text-center">
+                    <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <p className="text-sm text-muted">Démarrage de l'environnement VS Code…</p>
+                    <p className="text-xs text-muted mt-1 opacity-60">Première connexion : ~30–60 secondes</p>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="h-full flex items-center justify-center bg-bg">
               <div className="text-center text-muted text-sm">
