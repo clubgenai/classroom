@@ -807,15 +807,15 @@ async def workspace_launch(room_id: int, request: Request):
     coder_base = coder_client.CODER_PUBLIC_URL.rstrip("/")
     app_url = f"{coder_base}/@{ws['coder_username']}/{ws['workspace_name']}/apps/code"
 
-    # HTML page: sets Coder session cookie via JS then redirects to VS Code app
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<script>
-  document.cookie = "coder_session_token={ws['token']}; path=/; samesite=lax";
-  window.location.replace("{app_url}");
-</script>
-</head><body></body></html>"""
-    return HTMLResponse(content=html)
+    response = RedirectResponse(url=app_url, status_code=302)
+    response.set_cookie(
+        key="coder_session_token",
+        value=ws["token"],
+        path="/",
+        samesite="lax",
+        httponly=False,
+    )
+    return response
 
 
 @app.post("/api/admin/rooms/{room_id}/freeze")
