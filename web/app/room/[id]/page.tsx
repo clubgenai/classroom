@@ -167,10 +167,10 @@ function RoomInner({ roomId }: { roomId: number }) {
         {/* Workspace status */}
         {CODER_URL && (
           <span className={`text-xs px-1.5 py-0.5 rounded ${
-            wsLoading ? "text-muted" :
+            wsLoading || (workspace && !iframeReady) ? "text-muted" :
             workspace ? "text-green-400" : "text-yellow-500"
           }`}>
-            {wsLoading ? "VS Code…" : workspace ? "VS Code actif" : "Sans VS Code"}
+            {wsLoading || (workspace && !iframeReady) ? "VS Code…" : workspace ? "VS Code actif" : "Sans VS Code"}
           </span>
         )}
 
