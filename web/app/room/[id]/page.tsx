@@ -123,7 +123,7 @@ function RoomInner({ roomId }: { roomId: number }) {
 
   // Build iframe URL with session token for transparent auth
   const iframeUrl = workspace && CODER_URL
-    ? `${CODER_URL}/@${workspace.workspace_name.split("-").slice(0, 2).join("-")}/${workspace.workspace_name}?token=${workspace.token}`
+    ? `${CODER_URL}/@${workspace.coder_username}/${workspace.workspace_name}?token=${workspace.token}`
     : null;
 
   return (
