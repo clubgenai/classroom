@@ -9,9 +9,10 @@ import { useRoomSocket } from "@/lib/useRoomSocket";
 type CoderWorkspace = {
   workspace_id: string;
   workspace_name: string;
+  coder_username: string;
   token: string;
   status: "running" | "stopped" | "starting" | "stopping" | "frozen";
-  url: string;
+  url?: string;
 };
 
 type Bundle = {
