@@ -80,7 +80,15 @@ export default function AdminDashboard() {
       await api.delete(`/api/admin/rooms/${room.id}`);
       loadRooms();
     } catch (e: any) {
-      setErr(e.message);
+      if (e instanceof ApiError && e.status === 401) {
+        const ok = await ensureAnimatorAuth();
+        if (ok) {
+          try { await api.delete(`/api/admin/rooms/${room.id}`); loadRooms(); return; } catch {}
+        }
+        window.location.href = "/portal?next=/classroom/admin";
+      } else {
+        setErr(e.message);
+      }
     }
   };
 
@@ -99,7 +107,15 @@ export default function AdminDashboard() {
       await api.delete(`/api/admin/templates/${tpl.id}`);
       loadTemplates();
     } catch (e: any) {
-      setErr(e.message);
+      if (e instanceof ApiError && e.status === 401) {
+        const ok = await ensureAnimatorAuth();
+        if (ok) {
+          try { await api.delete(`/api/admin/templates/${tpl.id}`); loadTemplates(); return; } catch {}
+        }
+        window.location.href = "/portal?next=/classroom/admin";
+      } else {
+        setErr(e.message);
+      }
     }
   };
 

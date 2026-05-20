@@ -140,12 +140,30 @@ function Inner({ roomId }: { roomId: number }) {
     toast.push("Spotlight envoyé", "success");
   };
 
+  const reauth = async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/portal/api/animator-token", { credentials: "include" });
+      if (!res.ok) return false;
+      const { token } = await res.json();
+      const fd = new FormData();
+      fd.append("jwt_token", token);
+      const loginRes = await fetch("/classroom/api/admin/login", { method: "POST", credentials: "include", body: fd });
+      return loginRes.ok;
+    } catch { return false; }
+  };
+
   const removeParticipant = async (e: Enrollment) => {
     if (!confirm(`Retirer ${e.display_name} de la salle ?`)) return;
     try {
       await api.delete(`/api/admin/rooms/${roomId}/enrollments/${e.id}`);
       reload();
-    } catch (err: any) { toast.push(err.message, "error"); }
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 401) {
+        const ok = await reauth();
+        if (ok) { try { await api.delete(`/api/admin/rooms/${roomId}/enrollments/${e.id}`); reload(); return; } catch {} }
+        window.location.href = `/portal?next=/classroom/admin/rooms/${roomId}`;
+      } else { toast.push(err.message, "error"); }
+    }
   };
 
   const removeResource = async (r: Resource) => {
@@ -153,7 +171,13 @@ function Inner({ roomId }: { roomId: number }) {
     try {
       await api.delete(`/api/admin/rooms/${roomId}/resources/${r.id}`);
       reload();
-    } catch (err: any) { toast.push(err.message, "error"); }
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 401) {
+        const ok = await reauth();
+        if (ok) { try { await api.delete(`/api/admin/rooms/${roomId}/resources/${r.id}`); reload(); return; } catch {} }
+        window.location.href = `/portal?next=/classroom/admin/rooms/${roomId}`;
+      } else { toast.push(err.message, "error"); }
+    }
   };
 
   return (
