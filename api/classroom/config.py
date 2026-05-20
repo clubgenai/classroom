@@ -29,5 +29,11 @@ BROADCAST_COOLDOWN_SECONDS = 5
 
 PARTICIPANT_SCOPES = ["files:read", "files:write"]
 
+# Coder integration (optional — if CODER_ADMIN_TOKEN is empty, workspace endpoints return 503)
+CODER_URL = os.environ.get("CODER_URL", "")
+CODER_ADMIN_TOKEN = os.environ.get("CODER_ADMIN_TOKEN", "")
+CODER_TEMPLATE_ID = os.environ.get("CODER_TEMPLATE_ID", "")
+CODER_ORG_ID = os.environ.get("CODER_ORG_ID", "")
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 ROOMS_DIR.mkdir(parents=True, exist_ok=True)

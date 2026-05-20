@@ -161,6 +161,18 @@ CREATE TABLE IF NOT EXISTS session_event (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS coder_workspace (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    enrollment_id    INTEGER NOT NULL UNIQUE REFERENCES enrollment(id) ON DELETE CASCADE,
+    room_id          INTEGER NOT NULL REFERENCES room(id) ON DELETE CASCADE,
+    workspace_id     TEXT NOT NULL,        -- Coder UUID
+    workspace_name   TEXT NOT NULL,
+    coder_username   TEXT NOT NULL,
+    token            TEXT NOT NULL,        -- session token for iframe auth
+    status           TEXT NOT NULL DEFAULT 'running',
+    created_at       REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_enrollment_room  ON enrollment(room_id);
 CREATE INDEX IF NOT EXISTS idx_submission_room  ON submission(room_id);
 CREATE INDEX IF NOT EXISTS idx_help_room_status ON help_request(room_id, status);
@@ -171,6 +183,19 @@ CREATE INDEX IF NOT EXISTS idx_resource_room    ON resource(room_id);
 _MIGRATIONS = [
     "ALTER TABLE room ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE room ADD COLUMN solution TEXT",
+    "ALTER TABLE room ADD COLUMN frozen INTEGER NOT NULL DEFAULT 0",
+    (
+        "CREATE TABLE IF NOT EXISTS coder_workspace ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "enrollment_id INTEGER NOT NULL UNIQUE REFERENCES enrollment(id) ON DELETE CASCADE, "
+        "room_id INTEGER NOT NULL REFERENCES room(id) ON DELETE CASCADE, "
+        "workspace_id TEXT NOT NULL, "
+        "workspace_name TEXT NOT NULL, "
+        "coder_username TEXT NOT NULL, "
+        "token TEXT NOT NULL, "
+        "status TEXT NOT NULL DEFAULT 'running', "
+        "created_at REAL NOT NULL)"
+    ),
 ]
 
 _init_lock = threading.Lock()

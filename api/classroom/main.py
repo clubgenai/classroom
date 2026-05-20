@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, db, storage, tokens
+from . import auth, config, coder_client, db, storage, tokens
 from .ws import hub
 from .yjs import yjs_handler
 
@@ -737,6 +737,140 @@ async def websocket_yjs(websocket: WebSocket, room_id: int, doc_id: str):
         await websocket.close(code=4401)
         return
     await yjs_handler(websocket, room_id, doc_id)
+
+
+# ── Coder workspace endpoints ─────────────────────────────────────────────────
+
+@app.post("/api/rooms/{room_id}/workspace")
+async def provision_workspace(room_id: int, request: Request):
+    """Called after join — provisions a Coder workspace for this participant."""
+    ctx = auth.current_participant(request)
+    if ctx["room_id"] != room_id:
+        raise HTTPException(403)
+    enrollment_id = request.session.get("enrollment_id")
+    if not enrollment_id:
+        raise HTTPException(400, "No enrollment in session")
+
+    existing = storage.get_coder_workspace(enrollment_id)
+    if existing:
+        return existing
+
+    if not coder_client.CODER_TEMPLATE_ID:
+        raise HTTPException(503, "Coder not configured")
+
+    try:
+        ws = await coder_client.create_workspace(ctx["user"]["display_name"], ctx["user"]["id"])
+    except Exception as e:
+        raise HTTPException(502, f"Coder error: {e}")
+
+    record = storage.upsert_coder_workspace(
+        enrollment_id=enrollment_id,
+        room_id=room_id,
+        workspace_id=ws["workspace_id"],
+        workspace_name=ws["workspace_name"],
+        coder_username=ws["coder_username"],
+        token=ws["token"],
+    )
+    storage.log_event(room_id, "workspace_created", ctx["user"]["id"], {"workspace_id": ws["workspace_id"]})
+    return record
+
+
+@app.get("/api/rooms/{room_id}/workspace")
+async def get_my_workspace(room_id: int, request: Request):
+    """Returns current participant's workspace info (incl. token for iframe)."""
+    ctx = auth.current_participant(request)
+    if ctx["room_id"] != room_id:
+        raise HTTPException(403)
+    enrollment_id = request.session.get("enrollment_id")
+    ws = storage.get_coder_workspace(enrollment_id)
+    if not ws:
+        raise HTTPException(404, "No workspace")
+
+    room = storage.get_room(room_id)
+    if room and room.get("frozen"):
+        return {**ws, "status": "frozen"}
+    return ws
+
+
+@app.post("/api/admin/rooms/{room_id}/freeze")
+async def admin_freeze(room_id: int, request: Request):
+    """Freeze all workspaces in room — blocks iframe access instantly via status flag."""
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    storage.set_room_frozen(room_id, True)
+    storage.log_event(room_id, "room_frozen", ctx["user"]["id"], None)
+    await hub.broadcast(room_id, {"type": "room_frozen"})
+    return {"ok": True}
+
+
+@app.post("/api/admin/rooms/{room_id}/unfreeze")
+async def admin_unfreeze(room_id: int, request: Request):
+    """Unfreeze — restores iframe access."""
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    storage.set_room_frozen(room_id, False)
+    storage.log_event(room_id, "room_unfrozen", ctx["user"]["id"], None)
+    await hub.broadcast(room_id, {"type": "room_unfrozen"})
+    return {"ok": True}
+
+
+@app.post("/api/admin/rooms/{room_id}/workspaces/{enrollment_id}/stop")
+async def admin_stop_workspace(room_id: int, enrollment_id: int, request: Request):
+    """Stop one participant's workspace (individual freeze)."""
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    ws = storage.get_coder_workspace(enrollment_id)
+    if not ws or ws["room_id"] != room_id:
+        raise HTTPException(404)
+    try:
+        await coder_client.stop_workspace(ws["workspace_id"])
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    storage.update_coder_workspace_status(enrollment_id, "stopped")
+    return {"ok": True}
+
+
+@app.post("/api/admin/rooms/{room_id}/workspaces/{enrollment_id}/start")
+async def admin_start_workspace(room_id: int, enrollment_id: int, request: Request):
+    """Restart one participant's workspace."""
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    ws = storage.get_coder_workspace(enrollment_id)
+    if not ws or ws["room_id"] != room_id:
+        raise HTTPException(404)
+    try:
+        await coder_client.start_workspace(ws["workspace_id"])
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    storage.update_coder_workspace_status(enrollment_id, "running")
+    return {"ok": True}
+
+
+@app.get("/api/admin/rooms/{room_id}/workspaces")
+def admin_list_workspaces(room_id: int, request: Request):
+    """List all Coder workspaces for a room with statuses."""
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    return storage.list_room_coder_workspaces(room_id)
+
+
+@app.post("/api/admin/rooms/{room_id}/workspaces/cleanup")
+async def admin_cleanup_workspaces(room_id: int, request: Request):
+    """Delete all workspaces + ephemeral Coder users for a room."""
+    ctx = auth.current_animator(request)
+    if not storage.is_animator_of(room_id, ctx["user"]["id"]):
+        raise HTTPException(403)
+    workspaces = storage.list_room_coder_workspaces(room_id)
+    ws_ids = [w["workspace_id"] for w in workspaces]
+    usernames = [w["coder_username"] for w in workspaces]
+    await coder_client.delete_all_room_workspaces(ws_ids, usernames)
+    storage.log_event(room_id, "workspaces_cleaned", ctx["user"]["id"], {"count": len(ws_ids)})
+    return {"ok": True, "cleaned": len(ws_ids)}
 
 
 def main():

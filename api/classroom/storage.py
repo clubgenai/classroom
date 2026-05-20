@@ -681,6 +681,73 @@ def set_room_solution(room_id: int, code: str) -> None:
         conn.execute("UPDATE room SET solution=? WHERE id=?", (code, room_id))
 
 
+def set_room_frozen(room_id: int, frozen: bool) -> dict:
+    with db.cursor() as conn:
+        conn.execute("UPDATE room SET frozen=? WHERE id=?", (1 if frozen else 0, room_id))
+        row = conn.execute("SELECT * FROM room WHERE id=?", (room_id,)).fetchone()
+    return dict(row)
+
+
+# ── Coder workspaces ──────────────────────────────────────────────────────────
+
+def upsert_coder_workspace(
+    enrollment_id: int,
+    room_id: int,
+    workspace_id: str,
+    workspace_name: str,
+    coder_username: str,
+    token: str,
+) -> dict:
+    now = time.time()
+    with db.cursor() as conn:
+        conn.execute("DELETE FROM coder_workspace WHERE enrollment_id=?", (enrollment_id,))
+        cur = conn.execute(
+            "INSERT INTO coder_workspace "
+            "(enrollment_id, room_id, workspace_id, workspace_name, coder_username, token, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'running', ?)",
+            (enrollment_id, room_id, workspace_id, workspace_name, coder_username, token, now),
+        )
+        row = conn.execute("SELECT * FROM coder_workspace WHERE id=?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def get_coder_workspace(enrollment_id: int) -> Optional[dict]:
+    with db.cursor() as conn:
+        row = conn.execute(
+            "SELECT * FROM coder_workspace WHERE enrollment_id=?", (enrollment_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_coder_workspace_status(enrollment_id: int, status: str) -> None:
+    with db.cursor() as conn:
+        conn.execute(
+            "UPDATE coder_workspace SET status=? WHERE enrollment_id=?", (status, enrollment_id)
+        )
+
+
+def list_room_coder_workspaces(room_id: int) -> list[dict]:
+    with db.cursor() as conn:
+        rows = conn.execute(
+            "SELECT cw.*, u.display_name FROM coder_workspace cw "
+            "JOIN enrollment e ON e.id = cw.enrollment_id "
+            "JOIN user u ON u.id = e.user_id "
+            "WHERE cw.room_id=?",
+            (room_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_coder_workspace_record(enrollment_id: int) -> Optional[dict]:
+    with db.cursor() as conn:
+        row = conn.execute(
+            "SELECT * FROM coder_workspace WHERE enrollment_id=?", (enrollment_id,)
+        ).fetchone()
+        if row:
+            conn.execute("DELETE FROM coder_workspace WHERE enrollment_id=?", (enrollment_id,))
+    return dict(row) if row else None
+
+
 def get_participant_diff(room_id: int, enrollment_id: int) -> dict:
     with db.cursor() as conn:
         enr = conn.execute(

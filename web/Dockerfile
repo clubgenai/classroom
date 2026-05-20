@@ -9,8 +9,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_BASE_PATH=/classroom
 ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8002
+ARG NEXT_PUBLIC_CODER_URL=http://sfeir-lab.local/coder
 ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_CODER_URL=$NEXT_PUBLIC_CODER_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN touch next-env.d.ts && mkdir -p public && node node_modules/.bin/next build
 
