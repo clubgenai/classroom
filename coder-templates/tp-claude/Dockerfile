@@ -29,4 +29,4 @@ ENV SHELL=/bin/bash
 ENV HOME=/home/coder
 
 # Coder agent is downloaded at runtime from CODER_AGENT_URL injected by Terraform
-CMD ["sh", "-c", "curl -fsSL \"${CODER_AGENT_URL}/bin/coder\" -o /tmp/coder-agent && chmod +x /tmp/coder-agent && exec /tmp/coder-agent agent"]
+CMD ["sh", "-c", "curl -fsSL \"${CODER_AGENT_URL}/bin/coder-linux-amd64\" -o /tmp/coder-agent && chmod +x /tmp/coder-agent && exec /tmp/coder-agent agent"]
