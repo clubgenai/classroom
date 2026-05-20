@@ -770,6 +770,7 @@ async def provision_workspace(room_id: int, request: Request):
         workspace_name=ws["workspace_name"],
         coder_username=ws["coder_username"],
         token=ws["token"],
+        coder_password=ws.get("coder_password", ""),
     )
     storage.log_event(room_id, "workspace_created", ctx["user"]["id"], {"workspace_id": ws["workspace_id"]})
     return record
@@ -807,10 +808,18 @@ async def workspace_launch(room_id: int, request: Request):
     coder_base = coder_client.CODER_PUBLIC_URL.rstrip("/")
     app_url = f"{coder_base}/@{ws['coder_username']}/{ws['workspace_name']}/apps/code"
 
+    # Re-login to get a fresh session token (stored token may have expired)
+    token = ws["token"]
+    if ws.get("coder_password"):
+        try:
+            token = await coder_client._user_session_token(ws["coder_username"], ws["coder_password"])
+        except Exception:
+            pass
+
     response = RedirectResponse(url=app_url, status_code=302)
     response.set_cookie(
         key="coder_session_token",
-        value=ws["token"],
+        value=token,
         path="/",
         samesite="lax",
         httponly=False,

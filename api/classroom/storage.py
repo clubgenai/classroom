@@ -697,15 +697,16 @@ def upsert_coder_workspace(
     workspace_name: str,
     coder_username: str,
     token: str,
+    coder_password: str = "",
 ) -> dict:
     now = time.time()
     with db.cursor() as conn:
         conn.execute("DELETE FROM coder_workspace WHERE enrollment_id=?", (enrollment_id,))
         cur = conn.execute(
             "INSERT INTO coder_workspace "
-            "(enrollment_id, room_id, workspace_id, workspace_name, coder_username, token, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'running', ?)",
-            (enrollment_id, room_id, workspace_id, workspace_name, coder_username, token, now),
+            "(enrollment_id, room_id, workspace_id, workspace_name, coder_username, token, coder_password, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+            (enrollment_id, room_id, workspace_id, workspace_name, coder_username, token, coder_password, now),
         )
         row = conn.execute("SELECT * FROM coder_workspace WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(row)

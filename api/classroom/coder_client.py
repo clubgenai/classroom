@@ -97,6 +97,7 @@ async def create_workspace(display_name: str, user_id: int) -> dict:
         "workspace_id": ws_id,
         "workspace_name": ws_name,
         "coder_username": username,
+        "coder_password": password,
         "token": token,
         "url": f"{CODER_URL}/@{username}/{ws_name}",
     }

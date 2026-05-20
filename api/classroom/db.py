@@ -196,6 +196,7 @@ _MIGRATIONS = [
         "status TEXT NOT NULL DEFAULT 'running', "
         "created_at REAL NOT NULL)"
     ),
+    "ALTER TABLE coder_workspace ADD COLUMN coder_password TEXT NOT NULL DEFAULT ''",
 ]
 
 _init_lock = threading.Lock()
