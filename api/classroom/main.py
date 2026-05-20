@@ -18,7 +18,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth, config, coder_client, db, storage, tokens
@@ -790,6 +790,32 @@ async def get_my_workspace(room_id: int, request: Request):
     if room and room.get("frozen"):
         return {**ws, "status": "frozen"}
     return ws
+
+
+@app.get("/api/rooms/{room_id}/workspace/launch")
+async def workspace_launch(room_id: int, request: Request):
+    """Sets Coder session cookie then redirects to the workspace app (code-server).
+    Called as the iframe src so the browser receives the cookie directly."""
+    ctx = auth.current_participant(request)
+    if ctx["room_id"] != room_id:
+        raise HTTPException(403)
+    enrollment_id = request.session.get("enrollment_id")
+    ws = storage.get_coder_workspace(enrollment_id)
+    if not ws:
+        raise HTTPException(404, "No workspace")
+
+    coder_base = coder_client.CODER_PUBLIC_URL.rstrip("/")
+    app_url = f"{coder_base}/@{ws['coder_username']}/{ws['workspace_name']}/apps/code"
+
+    # HTML page: sets Coder session cookie via JS then redirects to VS Code app
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script>
+  document.cookie = "coder_session_token={ws['token']}; path=/; samesite=lax";
+  window.location.replace("{app_url}");
+</script>
+</head><body></body></html>"""
+    return HTMLResponse(content=html)
 
 
 @app.post("/api/admin/rooms/{room_id}/freeze")

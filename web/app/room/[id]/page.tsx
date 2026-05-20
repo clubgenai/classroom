@@ -65,7 +65,7 @@ function RoomInner({ roomId }: { roomId: number }) {
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Provision workspace once room data loaded
+  // Provision workspace once room data loaded, then pre-auth Coder session cookie
   useEffect(() => {
     if (!data || workspace || wsLoading || !CODER_URL) return;
     setWsLoading(true);
@@ -124,9 +124,9 @@ function RoomInner({ roomId }: { roomId: number }) {
   const doneCount = data.progress_ids.length;
   const totalCount = data.checklist.length;
 
-  // Build iframe URL with session token for transparent auth
+  // Launch URL: classroom-api sets coder_session_token cookie then redirects to VS Code app
   const iframeUrl = workspace && CODER_URL
-    ? `${CODER_URL}/@${workspace.coder_username}/${workspace.workspace_name}?token=${workspace.token}`
+    ? `${BASE}/api/rooms/${roomId}/workspace/launch`
     : null;
 
   return (

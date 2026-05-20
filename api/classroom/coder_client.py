@@ -8,6 +8,7 @@ from typing import Optional
 import httpx
 
 CODER_URL = os.environ.get("CODER_URL", "http://coder.sfeir-lab.local")
+CODER_PUBLIC_URL = os.environ.get("CODER_PUBLIC_URL", "http://sfeir-lab.local/coder")
 CODER_TOKEN = os.environ.get("CODER_ADMIN_TOKEN", "")
 CODER_TEMPLATE_ID = os.environ.get("CODER_TEMPLATE_ID", "")
 CODER_ORG_ID = os.environ.get("CODER_ORG_ID", "")
@@ -27,29 +28,51 @@ def _username(display_name: str, user_id: int) -> str:
     return f"p-{safe}-{user_id}"
 
 
-async def ensure_user(display_name: str, user_id: int) -> dict:
-    """Create ephemeral Coder user if not exists. Returns Coder user dict."""
+_user_passwords: dict[str, str] = {}
+
+
+async def ensure_user(display_name: str, user_id: int) -> tuple[dict, str]:
+    """Create ephemeral Coder user if not exists. Returns (user dict, password)."""
     username = _username(display_name, user_id)
+    if username in _user_passwords:
+        async with _client() as c:
+            r = await c.get(f"/api/v2/users/{username}")
+            if r.status_code == 200:
+                return r.json(), _user_passwords[username]
+    password = str(uuid.uuid4())
     async with _client() as c:
         r = await c.get(f"/api/v2/users/{username}")
         if r.status_code == 200:
-            return r.json()
+            # User exists but password unknown — reset it via admin
+            uid = r.json()["id"]
+            await c.put(f"/api/v2/users/{uid}/password", json={"password": password, "old_password": ""})
+            _user_passwords[username] = password
+            return r.json(), password
         payload = {
             "username": username,
             "email": f"{username}@classroom.local",
             "name": display_name,
-            "password": str(uuid.uuid4()),
+            "password": password,
             "login_type": "password",
             "organization_ids": [CODER_ORG_ID],
         }
         r = await c.post("/api/v2/users", json=payload)
         r.raise_for_status()
-        return r.json()
+        _user_passwords[username] = password
+        return r.json(), password
+
+
+async def _user_session_token(username: str, password: str) -> str:
+    """Login as user and return a real session token (works for workspace app auth)."""
+    async with httpx.AsyncClient(base_url=CODER_URL, timeout=30.0) as c:
+        r = await c.post("/api/v2/users/login", json={"email": f"{username}@classroom.local", "password": password})
+        r.raise_for_status()
+        return r.json()["session_token"]
 
 
 async def create_workspace(display_name: str, user_id: int) -> dict:
     """Create workspace for participant. Returns {workspace_id, workspace_name, token, url}."""
-    coder_user = await ensure_user(display_name, user_id)
+    coder_user, password = await ensure_user(display_name, user_id)
     username = coder_user["username"]
 
     async with _client() as c:
@@ -67,13 +90,8 @@ async def create_workspace(display_name: str, user_id: int) -> dict:
         ws = r.json()
         ws_id = ws["id"]
 
-        # Create a short-lived session token for this user
-        token_r = await c.post(
-            f"/api/v2/users/{username}/keys/tokens",
-            json={"lifetime": WORKSPACE_TTL_MS // 1000, "token_name": f"classroom-{ws_id[:8]}"},
-        )
-        token_r.raise_for_status()
-        token = token_r.json()["key"]
+    # Login as the user to get a real session token (works for workspace app iframe auth)
+    token = await _user_session_token(username, password)
 
     return {
         "workspace_id": ws_id,
